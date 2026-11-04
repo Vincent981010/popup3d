@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>圖片轉 3D 模型</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--tx:#1d1d1b;--mut:#6b6b66;--bd:#ddddd6;--ac:#4f46e5;--acx:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#161618;--card:#222226;--tx:#eee;--mut:#9a9aa3;--bd:#38383f;--ac:#818cf8;--acx:#111}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,"Noto Sans TC",sans-serif}
+.wrap{max-width:1100px;margin:0 auto;padding:16px;display:grid;gap:16px;grid-template-columns:340px 1fr}
+@media(max-width:820px){.wrap{grid-template-columns:1fr}}
+h1{font-size:20px;margin:0 0 4px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{flex:1}
+button,.btn{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;padding:8px 12px;cursor:pointer}
+button.on,button.pri{background:var(--ac);color:var(--acx);border-color:var(--ac)}
+button:disabled{opacity:.5;cursor:wait}
+label{display:block;font-size:13px;color:var(--mut);margin:10px 0 3px}
+input[type=range],select{width:100%}
+select,input[type=text],input[type=password]{width:100%;font:inherit;padding:6px;border-radius:6px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}
+.ups{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.up{border:1.5px dashed var(--bd);border-radius:10px;aspect-ratio:1;display:flex;align-items:center;justify-content:center;text-align:center;font-size:12px;color:var(--mut);cursor:pointer;overflow:hidden;position:relative;background-size:contain;background-repeat:no-repeat;background-position:center}
+.up.one{grid-column:1/-1;aspect-ratio:4/3}
+.up input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#view{width:100%;height:min(70vh,560px);border-radius:10px;background:radial-gradient(circle at 50% 30%,#4a4a58,#1c1c22);overflow:hidden;position:relative}
+#view canvas{display:block}
+#st{font-size:13px;color:var(--mut);margin-top:8px;min-height:20px}
+.hint{font-size:12px;color:var(--mut);margin-top:8px}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+  <h1>圖片轉 3D 模型</h1>
+  <div class="hint" style="margin:0 0 12px">全部在瀏覽器本機運算，圖片不會上傳到伺服器。</div>
+  <div class="tabs"><button id="t1" class="on">單張圖片</button><button id="t3">三視圖</button></div>
+
+  <div id="m1" class="ups"><div class="up one" id="u0">點擊上傳圖片<input type="file" accept="image/*"></div></div>
+  <div id="m3" class="ups hide">
+    <div class="up" id="uf">正面<input type="file" accept="image/*"></div>
+    <div class="up" id="us">側面<input type="file" accept="image/*"></div>
+    <div class="up" id="ut">頂面（選填）<input type="file" accept="image/*"></div>
+  </div>
+
+  <label>去背容差：<b id="vtol">40</b>（透明 PNG 會直接用透明度）</label>
+  <input type="range" id="tol" min="5" max="120" value="40">
+
+  <div id="o1">
+    <label>深度來源</label>
+    <select id="dsrc"><option value="ai">AI 深度估計（真人／照片，首次需下載模型）</option><option value="inf">輪廓膨脹（動漫／插畫／快速）</option></select>
+    <label>立體強度：<b id="vdep">0.6</b></label>
+    <input type="range" id="dep" min="0.1" max="1.5" step="0.05" value="0.6">
+    <label>背面</label>
+    <select id="back"><option value="mir">鏡像（較立體）</option><option value="flat">平面</option></select>
+    <label>網格解析度（長邊像素）：<b id="vres">256</b></label>
+    <input type="range" id="res" min="96" max="400" step="16" value="256">
+  </div>
+  <div id="o3" class="hide">
+    <label>體素解析度：<b id="vvox">96</b></label>
+    <input type="range" id="vox" min="48" max="160" step="8" value="96">
+    <label>側面圖角色朝向</label>
+    <select id="flip"><option value="0">面向圖片右側</option><option value="1">面向圖片左側</option></select>
+    <div class="hint">三張圖需為正交視圖，且角色高度一致；頂面圖上方＝角色背後。</div>
+  </div>
+
+  <label>生成引擎</label>
+  <select id="eng"><option value="local">本機運算（快速，浮雕／體素）</option><option value="hf">Hugging Face AI（完整 3D，單圖或三視圖的正面圖）</option></select>
+  <div id="ohf" class="hide">
+    <label>Space ID</label><input type="text" id="sp" value="stabilityai/TripoSR" autocomplete="off">
+    <label>HF Token（選填，可提高免費額度）</label><input type="password" id="tk" placeholder="hf_..." autocomplete="off">
+    <div class="hint">Token 只存在你的瀏覽器記憶體，不會被儲存；請勿寫死在程式碼裡。</div>
+  </div>
+
+  <div class="row"><button class="pri" id="go" style="flex:1">生成 3D 模型</button></div>
+  <div id="st"></div>
+</div>
+
+<div class="card">
+  <div id="view"></div>
+  <div class="row">
+    <button id="eg" disabled>下載 GLB</button>
+    <button id="eo" disabled>下載 OBJ</button>
+    <button id="es" disabled>下載 STL</button>
+  </div>
+  <div class="hint">單圖模式為「浮雕式」模型，背面是推估的；三視圖模式用輪廓雕刻（Visual Hull），凹陷處無法還原。需要完整高品質模型請搭配專業 AI 服務。</div>
+</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {OBJLoader} from 'three/addons/loaders/OBJLoader.js';
+import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
+import {OBJExporter} from 'three/addons/exporters/OBJExporter.js';
+import {STLExporter} from 'three/addons/exporters/STLExporter.js';
+
+const $=id=>document.getElementById(id);
+const st=t=>$('st').textContent=t;
+const files={};let mode=1,mesh=null;
+
+// ---------- UI ----------
+function setMode(m){mode=m;$('t1').classList.toggle('on',m==1);$('t3').classList.toggle('on',m==3);
+  for(const [a,b] of [['m1',1],['o1',1],['m3',3],['o3',3]])$(a).classList.toggle('hide',b!=m)}
+$('t1').onclick=()=>setMode(1);$('t3').onclick=()=>setMode(3);
+for(const [r,v] of [['tol','vtol'],['dep','vdep'],['res','vres'],['vox','vvox']])$(r).oninput=()=>$(v).textContent=$(r).value;
+for(const [box,key] of [['u0','one'],['uf','f'],['us','s'],['ut','t']]){
+  const el=$(box),inp=el.querySelector('input');
+  inp.onchange=()=>{const f=inp.files[0];if(!f)return;files[key]=f;
+    el.style.backgroundImage=`url(${URL.createObjectURL(f)})`;el.firstChild.textContent=''}}
+
+// ---------- image helpers ----------
+const loadImg=f=>new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=no;i.src=URL.createObjectURL(f)});
+async function pixels(f,max){
+  const im=await loadImg(f),k=Math.min(1,max/Math.max(im.width,im.height));
+  const w=Math.max(2,Math.round(im.width*k)),h=Math.max(2,Math.round(im.height*k));
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(im,0,0,w,h);
+  return {w,h,d:x.getImageData(0,0,w,h).data};
+}
+function makeMask(d,w,h,tol){
+  const n=w*h,m=new Uint8Array(n).fill(1);
+  let alpha=false;for(let i=0;i<n;i++)if(d[i*4+3]<250){alpha=true;break}
+  if(alpha){for(let i=0;i<n;i++)m[i]=d[i*4+3]>128?1:0;return m}
+  const cs=[0,w-1,(h-1)*w,n-1],bg=[0,0,0];
+  for(const p of cs)for(let c=0;c<3;c++)bg[c]+=d[p*4+c]/4;
+  const far=i=>Math.hypot(d[i*4]-bg[0],d[i*4+1]-bg[1],d[i*4+2]-bg[2])>tol;
+  const seen=new Uint8Array(n),stack=[];
+  const push=i=>{if(!seen[i]&&!far(i)){seen[i]=1;m[i]=0;stack.push(i)}};
+  for(let x=0;x<w;x++){push(x);push((h-1)*w+x)}for(let y=0;y<h;y++){push(y*w);push(y*w+w-1)}
+  while(stack.length){const i=stack.pop(),x=i%w,y=(i/w)|0;
+    if(x>0)push(i-1);if(x<w-1)push(i+1);if(y>0)push(i-w);if(y<h-1)push(i+w)}
+  return m;
+}
+function distField(m,w,h){ // chamfer distance to outside
+  const D=new Float32Array(w*h),B=1e9;
+  for(let i=0;i<w*h;i++)D[i]=m[i]?B:0;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!m[i])continue;
+    let v=D[i];v=Math.min(v,x>0?D[i-1]+1:1,y>0?D[i-w]+1:1);
+    if(x>0&&y>0)v=Math.min(v,D[i-w-1]+1.414);if(x<w-1&&y>0)v=Math.min(v,D[i-w+1]+1.414);D[i]=v}
+  for(let y=h-1;y>=0;y--)for(let x=w-1;x>=0;x--){const i=y*w+x;if(!m[i])continue;
+    let v=D[i];v=Math.min(v,x<w-1?D[i+1]+1:1,y<h-1?D[i+w]+1:1);
+    if(x<w-1&&y<h-1)v=Math.min(v,D[i+w+1]+1.414);if(x>0&&y<h-1)v=Math.min(v,D[i+w-1]+1.414);D[i]=v}
+  let mx=1;for(const v of D)if(v>mx&&v<B)mx=v;
+  return Array.from(D,v=>Math.sqrt(Math.min(v,mx)/mx));
+}
+let depthPipe=null;
+async function aiDepth(file,w,h,m){
+  if(!depthPipe){
+    st('載入 AI 深度模型（首次約數十 MB）…');
+    const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2');
+    depthPipe=await T.pipeline('depth-estimation','Xenova/depth-anything-small-hf',
+      {progress_callback:p=>{if(p.status=='progress')st(`下載模型 ${Math.round(p.progress)}%`)}});
+  }
+  st('估計深度中…');
+  const out=await depthPipe(URL.createObjectURL(file)),dp=out.depth;
+  const D=new Float32Array(w*h);let lo=1e9,hi=-1e9;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const v=dp.data[Math.min(dp.height-1,(y/h*dp.height)|0)*dp.width+Math.min(dp.width-1,(x/w*dp.width)|0)];
+    D[y*w+x]=v;if(m[y*w+x]){lo=Math.min(lo,v);hi=Math.max(hi,v)}}
+  for(let i=0;i<D.length;i++)D[i]=Math.min(1,Math.max(0,(D[i]-lo)/(hi-lo||1)));
+  return D;
+}
+
+// ---------- single image -> relief ----------
+async function buildRelief(){
+  if(!files.one)throw '請先上傳圖片';
+  const {w,h,d}=await pixels(files.one,+$('res').value);
+  const m=makeMask(d,w,h,+$('tol').value);
+  let D;
+  if($('dsrc').value=='ai'){try{D=await aiDepth(files.one,w,h,m)}catch(e){console.warn(e);st('AI 模型載入失敗，改用輪廓膨脹');D=distField(m,w,h)}}
+  else D=distField(m,w,h);
+  st('建立網格…');
+  const s=2/Math.max(w,h),Z=+$('dep').value*2,base=0.04,mirror=$('back').value=='mir';
+  const N=w*h,pos=new Float32Array(N*6),col=new Float32Array(N*6);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=y*w+x,z=D[i]*Z,X=(x-w/2)*s,Y=(h/2-y)*s;
+    pos.set([X,Y,z+base],i*3);pos.set([X,Y,(mirror?-z:0)-base],(N+i)*3);
+    for(let c=0;c<3;c++){const v=d[i*4+c]/255;col[i*3+c]=v;col[(N+i)*3+c]=v*0.8}}
+  const cm=(x,y)=>x>=0&&y>=0&&x<w-1&&y<h-1&&m[y*w+x]&&m[y*w+x+1]&&m[(y+1)*w+x]&&m[(y+1)*w+x+1];
+  const idx=[],q=(a,b,c,e)=>idx.push(a,b,c,a,c,e);
+  for(let y=0;y<h-1;y++)for(let x=0;x<w-1;x++){if(!cm(x,y))continue;
+    const a=y*w+x,b=a+1,c=a+w,e=c+1;
+    idx.push(a,c,b,b,c,e);idx.push(N+a,N+b,N+c,N+b,N+e,N+c);
+    if(!cm(x,y-1))q(a,b,N+b,N+a);      // top: a→b
+    if(!cm(x,y+1))q(e,c,N+c,N+e);      // bottom: d→c
+    if(!cm(x-1,y))q(c,a,N+a,N+c);      // left: c→a
+    if(!cm(x+1,y))q(b,e,N+e,N+b);      // right: b→d
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.BufferAttribute(col,3));
+  g.setIndex(idx);g.computeVertexNormals();return g;
+}
+
+// ---------- three views -> visual hull ----------
+async function silhouette(f,tol){
+  const {w,h,d}=await pixels(f,512),m=makeMask(d,w,h,tol);
+  let x0=w,y0=h,x1=-1,y1=-1;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(m[y*w+x]){x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)}
+  if(x1<0)throw '偵測不到主體，請調整去背容差';
+  const cw=x1-x0+1,ch=y1-y0+1;
+  return {w:cw,h:ch,at(u,v){const x=x0+Math.min(cw-1,Math.max(0,(u*cw)|0)),y=y0+Math.min(ch-1,Math.max(0,(v*ch)|0)),i=y*w+x;
+    return {on:m[i],r:d[i*4]/255,g:d[i*4+1]/255,b:d[i*4+2]/255}}};
+}
+async function buildHull(){
+  if(!files.f||!files.s)throw '請至少上傳正面與側面圖';
+  const tol=+$('tol').value;st('分析輪廓…');
+  const F=await silhouette(files.f,tol),S=await silhouette(files.s,tol),T=files.t?await silhouette(files.t,tol):null;
+  const flip=$('flip').value=='1',N=+$('vox').value;
+  const W=N,H=Math.max(8,Math.round(N*F.h/F.w)),Dp=Math.max(8,Math.round(H*S.w/S.h));
+  const su=z=>flip?1-(z+.5)/Dp:(z+.5)/Dp;
+  st('雕刻體素…');
+  const solid=new Uint8Array(W*H*Dp),I=(x,y,z)=>(y*Dp+z)*W+x; // y = image row
+  for(let y=0;y<H;y++)for(let z=0;z<Dp;z++){
+    if(!S.at(su(z),(y+.5)/H).on)continue;
+    for(let x=0;x<W;x++){
+      if(!F.at((x+.5)/W,(y+.5)/H).on)continue;
+      if(T&&!T.at((x+.5)/W,(z+.5)/Dp).on)continue;
+      solid[I(x,y,z)]=1}}
+  const get=(x,y,z)=>x>=0&&y>=0&&z>=0&&x<W&&y<H&&z<Dp&&solid[I(x,y,z)];
+  const s=2/Math.max(W,H,Dp),P=[],C=[],X=[];
+  const faces=[[[1,0,0],[1,1,0],[1,1,1],[1,0,1]],[[0,0,0],[0,0,1],[0,1,1],[0,1,0]],
+    [[0,1,0],[0,1,1],[1,1,1],[1,1,0]],[[0,0,0],[1,0,0],[1,0,1],[0,0,1]],
+    [[0,0,1],[1,0,1],[1,1,1],[0,1,1]],[[0,0,0],[0,1,0],[1,1,0],[1,0,0]]];
+  const nb=[[1,0,0],[-1,0,0],[0,-1,0],[0,1,0],[0,0,1],[0,0,-1]]; // world dirs (y up) -> image row dy inverted
+  for(let y=0;y<H;y++)for(let z=0;z<Dp;z++)for(let x=0;x<W;x++){
+    if(!solid[I(x,y,z)])continue;
+    for(let f=0;f<6;f++){
+      const [dx,dy,dz]=nb[f];if(get(x+dx,y-dy,z+dz))continue; // dy: world up = image row -1
+      let c;
+      if(f<2)c=S.at(su(z),(y+.5)/H);
+      else if(f<4)c=T?T.at((x+.5)/W,(z+.5)/Dp):F.at((x+.5)/W,(y+.5)/H);
+      else c=F.at((x+.5)/W,(y+.5)/H);
+      const k=f==5?.8:1,b=P.length/3;
+      for(const [a,bb,cc] of faces[f]){P.push((x+a-W/2)*s,(H-1-y+bb-H/2)*s,(z+cc-Dp/2)*s);C.push(c.r*k,c.g*k,c.b*k)}
+      X.push(b,b+1,b+2,b,b+2,b+3);}}
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(P,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(C,3));
+  g.setIndex(X);g.computeVertexNormals();return g;
+}
+
+// ---------- Hugging Face Space (AI) ----------
+$('eng').onchange=()=>$('ohf').classList.toggle('hide',$('eng').value!='hf');
+async function buildRemote(){
+  const f=mode==1?files.one:files.f;
+  if(!f)throw '請先上傳圖片'+(mode==3?'（AI 引擎使用正面圖）':'');
+  const id=$('sp').value.trim(),tk=$('tk').value.trim();
+  st('連線到 Space…（休眠中的 Space 需 1–2 分鐘喚醒）');
+  const {Client,handle_file}=await import('https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js');
+  const app=await Client.connect(id,tk?{hf_token:tk}:{});
+  try{
+    let input=handle_file(f);
+    try{st('預處理（去背）…');input=(await app.predict('/preprocess',[input,true,0.85])).data[0]}
+    catch(e){console.warn('preprocess 失敗，直接送原圖',e)}
+    st('AI 生成 3D 中…（排隊與運算可能需數十秒）');
+    let res;
+    try{res=await app.predict('/generate',[input,256])}
+    catch(e){console.warn(e);res=await app.predict('/generate',[input])}
+    const urls=res.data.map(o=>o&&(o.url||o.path)).filter(Boolean);
+    const url=urls.find(u=>/\.glb(\?|$)/i.test(u))||urls[0];
+    if(!url)throw '此 Space 沒有回傳模型檔';
+    st('下載模型…');
+    const buf=await (await fetch(url)).arrayBuffer();
+    let root;
+    if(/\.glb(\?|$)/i.test(url))root=(await new GLTFLoader().parseAsync(buf,'')).scene;
+    else root=new OBJLoader().parse(new TextDecoder().decode(buf));
+    root.updateMatrixWorld(true);
+    const gs=[];root.traverse(o=>{if(o.isMesh){const g=o.geometry.clone().toNonIndexed();g.applyMatrix4(o.matrixWorld);gs.push(g)}});
+    if(!gs.length)throw '模型檔內沒有網格';
+    const g=gs[0];
+    if(!g.attributes.color){const n=g.attributes.position.count;g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(n*3).fill(.8),3))}
+    else if(g.attributes.color.itemSize==4){const a=g.attributes.color,c=new Float32Array(a.count*3);
+      for(let i=0;i<a.count;i++){c[i*3]=a.getX(i);c[i*3+1]=a.getY(i);c[i*3+2]=a.getZ(i)}
+      g.setAttribute('color',new THREE.BufferAttribute(c,3))}
+    g.computeBoundingBox();const sz=new THREE.Vector3();g.boundingBox.getSize(sz);
+    g.scale(...Array(3).fill(2/Math.max(sz.x,sz.y,sz.z)));
+    if(!g.index){g.setIndex([...Array(g.attributes.position.count).keys()])}
+    return g;
+  }catch(e){
+    try{console.log('Space API 資訊：',await app.view_api())}catch{}
+    throw e}
+}
+
+// ---------- viewer ----------
+const box=$('view'),ren=new THREE.WebGLRenderer({antialias:true,alpha:true});
+ren.setPixelRatio(devicePixelRatio);box.appendChild(ren.domElement);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(40,1,.01,100);cam.position.set(0,.3,4.5);
+scene.add(new THREE.HemisphereLight(0xffffff,0x444455,1.1));
+const dl=new THREE.DirectionalLight(0xffffff,1.6);dl.position.set(2,3,4);scene.add(dl);
+const ctl=new OrbitControls(cam,ren.domElement);ctl.enableDamping=true;
+function resize(){const w=box.clientWidth,h=box.clientHeight;ren.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix()}
+addEventListener('resize',resize);resize();
+(function loop(){requestAnimationFrame(loop);ctl.update();ren.render(scene,cam)})();
+
+function show(g){
+  if(mesh){scene.remove(mesh);mesh.geometry.dispose()}
+  g.computeBoundingBox();const c=new THREE.Vector3();g.boundingBox.getCenter(c);g.translate(-c.x,-c.y,-c.z);
+  mesh=new THREE.Mesh(g,new THREE.MeshStandardMaterial({vertexColors:true,side:THREE.DoubleSide,roughness:.85,metalness:0}));
+  scene.add(mesh);ctl.reset();cam.position.set(0,.3,4.5);ctl.update();
+  for(const b of['eg','eo','es'])$(b).disabled=false;
+}
+$('go').onclick=async()=>{
+  $('go').disabled=true;
+  try{const g=$('eng').value=='hf'?await buildRemote():(mode==1?await buildRelief():await buildHull());show(g);st(`完成：${g.index.count/3} 個三角面，可拖曳旋轉預覽`)}
+  catch(e){console.error(e);st('錯誤：'+(e.message||e))}
+  $('go').disabled=false};
+
+// ---------- export ----------
+function dl(data,name,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;a.click()}
+$('eg').onclick=()=>new GLTFExporter().parse(mesh,r=>dl(r,'model.glb','model/gltf-binary'),e=>st('匯出失敗'),{binary:true});
+$('eo').onclick=()=>dl(new OBJExporter().parse(mesh),'model.obj','text/plain');
+$('es').onclick=()=>dl(new STLExporter().parse(mesh,{binary:true}),'model.stl','model/stl');
+</script>
+</body>
+</html>
